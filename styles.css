@@ -1,0 +1,135 @@
+
+  body {
+    margin: 0;
+    font-family: 'Arial', sans-serif;
+    background: #000;
+    color: white;
+    overflow-x: hidden;
+  }
+
+  /* BACKGROUND BLOBS */
+  .blob {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(99,102,241,0.6), transparent 70%);
+  filter: blur(100px);
+  z-index: 0;
+
+  animation: float 12s ease-in-out infinite;
+}
+
+  .blob1 {
+  top: 50px;
+  left: 30%;
+  animation-delay: 0s;
+}
+
+.blob2 {
+  top: 200px;
+  right: 10%;
+  background: radial-gradient(circle, rgba(168,85,247,0.6), transparent 70%);
+  animation-delay: 3s;
+}
+
+.blob3 {
+  bottom: 50px;
+  left: 10%;
+  background: radial-gradient(circle, rgba(59,130,246,0.6), transparent 70%);
+  animation-delay: 6s;
+}
+  /* NAVBAR */
+  .navbar {
+    position: relative;
+    z-index: 2;
+    padding: 30px 50px;
+    font-size: 14px;
+    letter-spacing: 2px;
+  }
+
+  /* HERO */
+  .hero {
+    position: relative;
+    z-index: 2;
+    padding: 100px 60px;
+  }
+
+  .hero h1 {
+    font-size: 80px;
+    font-weight: 300;
+    margin: 0;
+    letter-spacing: 2px;
+  }
+
+  .hero p {
+    margin-top: 15px;
+    font-size: 22px;
+    color: #aaa;
+  }
+
+  /* BUTTON */
+  .upload-btn {
+    margin-top: 40px;
+    padding: 15px 30px;
+    border-radius: 30px;
+    border: 1px solid #888;
+    background: transparent;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+
+  .upload-btn:hover {
+    border-color: white;
+    background: rgba(255,255,255,0.05);
+  }
+
+  /* FILE INPUT HIDDEN */
+  input[type="file"] {
+    display: none;
+  }
+
+  /* RESULTS */
+  #results {
+    position: relative;
+    z-index: 2;
+    padding: 40px 60px;
+  }
+
+  .job {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    padding: 20px;
+    margin: 15px 0;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.1);
+
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeIn 0.5s forwards;
+  }
+@keyframes fadeIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  25% {
+    transform: translate(40px, -60px) scale(1.1);
+  }
+  50% {
+    transform: translate(-30px, 40px) scale(0.95);
+  }
+  75% {
+    transform: translate(50px, 20px) scale(1.05);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}

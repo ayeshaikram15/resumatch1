@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ResuMatch</title>
+  <!-- ADD THIS LINE RIGHT HERE -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- BACKGROUND EFFECT -->
+<div class="blob blob1"></div>
+<div class="blob blob2"></div>
+<div class="blob blob3"></div>
+
+<!-- NAVBAR -->
+<div class="navbar">RESUMATCH</div>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>RESUMATCH</h1>
+  <p>Finding jobs made easy</p>
+
+  <label class="upload-btn">
+    Upload your resume
+    <input type="file" id="fileInput" accept=".pdf" onchange="uploadResume()">
+  </label>
+</div>
+
+<!-- RESULTS -->
+<div id="results"></div>
+
+<script>
+async function uploadResume() {
+  const fileInput = document.getElementById("fileInput");
+  const file = fileInput.files[0];
+
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  document.getElementById("results").innerHTML =
+    "<p style='color:#aaa;'>Matching jobs...</p>";
+
+  try {
+    const res = await fetch("http://127.0.0.1:8000/match", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+    displayJobs(data.matches);
+
+  } catch (err) {
+    alert("Error connecting to backend");
+  }
+}
+
+function displayJobs(jobs) {
+  const resultsDiv = document.getElementById("results");
+  resultsDiv.innerHTML = "";
+
+  jobs.forEach(job => {
+    const div = document.createElement("div");
+    div.className = "job";
+
+    div.innerHTML = `
+      <h3>${job.title}</h3>
+      <p>${job.company}</p>
+      <p style="color:#60a5fa;">Match Score: ${job.score}</p>
+    `;
+
+    resultsDiv.appendChild(div);
+  });
+}
+</script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from pypdf import PdfReader
+import anthropic
+import io
+import requests
+import re
+import os
+import json
+
+ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID")
+ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY")
+
+app = FastAPI()
+claude = anthropic.Anthropic()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/match")
+async def match(file: UploadFile = File(...)):
+    contents = await file.read()
+    pdf = PdfReader(io.BytesIO(contents))
+
+    text = ""
+    for page in pdf.pages:
+        text += page.extract_text() or ""
+
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # Step 1: Use Claude to extract a smart search query from the resume
+    query = extract_query_from_resume(text)
+
+    # Step 2: Fetch jobs from Adzuna using that query
+    jobs = get_jobs(query)
+
+    if not jobs:
+        return {"matches": [], "query_used": query}
+
+    # Step 3: Use Claude to score each job against the resume
+    results = score_jobs_with_claude(text, jobs)
+
+    return {"matches": results, "query_used": query}
+
+
+def extract_query_from_resume(resume_text: str) -> str:
+    """Ask Claude to extract a concise job search query from the resume."""
+    response = claude.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=100,
+        messages=[{
+            "role": "user",
+            "content": f"""Extract a short job search query (5-8 words max) from this resume that best represents the candidate's target role and top skills. Return ONLY the query string, nothing else.
+
+Resume:
+{resume_text[:3000]}"""
+        }]
+    )
+    return response.content[0].text.strip()
+
+
+def score_jobs_with_claude(resume_text: str, jobs: list) -> list:
+    """Ask Claude to score and explain how well each job matches the resume."""
+    jobs_list = "\n".join([
+        f"{i+1}. {j['title']} at {j['company']}: {j['description'][:200]}"
+        for i, j in enumerate(jobs)
+    ])
+
+    response = claude.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=1000,
+        messages=[{
+            "role": "user",
+            "content": f"""You are a career advisor. Score how well each job matches the candidate's resume on a scale of 0-100. Return ONLY a JSON array with this exact format, no other text:
+[{{"title": "job title", "company": "company name", "score": 85, "reason": "brief reason"}}]
+
+Resume summary (first 2000 chars):
+{resume_text[:2000]}
+
+Jobs to evaluate:
+{jobs_list}"""
+        }]
+    )
+
+    raw = response.content[0].text.strip()
+    # Strip markdown code fences if present
+    raw = re.sub(r'^```(?:json)?\s*', '', raw)
+    raw = re.sub(r'\s*```$', '', raw)
+
+    try:
+        scored = json.loads(raw)
+        return sorted(scored, key=lambda x: x["score"], reverse=True)
+    except json.JSONDecodeError:
+        # Fallback: return jobs unscored if Claude's response can't be parsed
+        return [{"title": j["title"], "company": j["company"], "score": 0, "reason": "scoring unavailable"} for j in jobs]
+
+
+def get_jobs(query):
+    url = "https://api.adzuna.com/v1/api/jobs/ca/search/1"
+    params = {
+        "app_id": ADZUNA_APP_ID,
+        "app_key": ADZUNA_APP_KEY,
+        "what": query,
+        "results_per_page": 10,
+        "content-type": "application/json"
+    }
+
+    res = requests.get(url, params=params)
+    if res.status_code != 200:
+        return []
+
+    data = res.json()
+    jobs = []
+    for item in data.get("results", []):
+        jobs.append({
+            "title": item.get("title"),
+            "company": item.get("company", {}).get("display_name"),
+            "description": item.get("description", "")
+        })
+    return jobs

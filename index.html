@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ResuMatch</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<!-- BACKGROUND EFFECT -->
+<div class="blob blob1"></div>
+<div class="blob blob2"></div>
+<div class="blob blob3"></div>
+
+<!-- NAVBAR -->
+<div class="navbar">RESUMATCH</div>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>RESUMATCH</h1>
+  <p>Finding jobs made easy</p>
+
+  <label class="upload-btn">
+    Upload your resume
+    <input type="file" id="fileInput" accept=".pdf" onchange="uploadResume()">
+  </label>
+</div>
+
+<!-- RESULTS -->
+<div id="results"></div>
+
+<script>
+async function uploadResume() {
+  const fileInput = document.getElementById("fileInput");
+  const file = fileInput.files[0];
+
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const resultsDiv = document.getElementById("results");
+  resultsDiv.innerHTML = "<p style='color:#aaa;'>Matching jobs...</p>";
+
+  try {
+    const res = await fetch("http://127.0.0.1:8000/match", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!res.ok) {
+      throw new Error("Server error");
+    }
+
+    const data = await res.json();
+
+    console.log("BACKEND RESPONSE:", data); // 🔍 debug
+
+    if (!data.matches || data.matches.length === 0) {
+      resultsDiv.innerHTML = "<p style='color:#aaa;'>No jobs found.</p>";
+      return;
+    }
+
+    displayJobs(data.matches);
+
+  } catch (err) {
+    console.error(err);
+    resultsDiv.innerHTML = "<p style='color:red;'>Error connecting to backend.</p>";
+  }
+}
+
+function displayJobs(jobs) {
+  const resultsDiv = document.getElementById("results");
+  resultsDiv.innerHTML = "";
+
+  jobs.forEach(job => {
+    const div = document.createElement("div");
+    div.className = "job";  
+
+    div.innerHTML = `
+      <h3>${job.title || "No Title"}</h3>
+      <p>${job.company || "Unknown Company"}</p>
+      <p style="color:#60a5fa;">Match Score: ${job.score ?? 0}</p>
+      ${job.url ? `<a href="${job.url}" target="_blank" style="color:#34d399;">Apply Now →</a>` : ""}
+    `;
+
+    resultsDiv.appendChild(div);
+  });
+}
+
+
+</script>
+
+</body>
+</html>
+
+
+
+
+

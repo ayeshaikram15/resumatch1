@@ -1,0 +1,150 @@
+from groq import Groq
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from pypdf import PdfReader
+from collections import Counter
+
+import io
+import requests
+import re
+import os
+import json
+
+ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID")
+ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+app = FastAPI()
+
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/match")
+async def match(file: UploadFile = File(...)):
+    contents = await file.read()
+    pdf = PdfReader(io.BytesIO(contents))
+
+    text = ""
+    for page in pdf.pages:
+        text += page.extract_text() or ""
+
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    print("📄 Resume extracted (first 300 chars):", text[:300])
+
+    query = extract_query_from_resume(text)
+    print("🔎 Query used:", query)
+
+    jobs = get_jobs(query)
+    print("📊 Jobs fetched:", len(jobs))
+
+    if not jobs:
+        return {"matches": [], "query_used": query}
+
+    results = score_jobs(text, jobs)
+
+    return {"matches": results, "query_used": query}
+
+
+def extract_query_from_resume(resume_text: str) -> str:
+    if not groq_client:
+        print("⚠️ No Groq key, using fallback")
+        return "software developer"
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": f"""Read this resume carefully including the summary, experience, volunteering, and skills sections.
+Based on ALL of that, what is the best 2-3 word job title for this person?
+Consider what they seem passionate about, not just their degree.
+Return ONLY a comma separated list on one line, no numbers, no explanation. Example: Data Analyst, Event Coordinator, Customer Service Representative
+
+
+Resume:
+{resume_text[:3000]}"""}],
+            max_tokens=40
+        )
+        raw = response.choices[0].message.content.strip()
+        # split by comma and clean each title
+        titles = [re.sub(r'^[\d\.\-\s]+', '', t).strip() for t in raw.split(",")]
+        titles = [t for t in titles if t][:3]  # max 3
+        print(f"✅ Groq titles: {titles}")
+        return titles
+
+    except Exception as e:
+        print("❌ Groq query extraction failed:", e)
+        return "software developer"
+
+
+def get_jobs(queries):
+    if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
+        print("❌ Missing Adzuna API keys")
+        return []
+
+    if isinstance(queries, str):
+        queries = [queries]
+
+    all_jobs = []
+    seen = set()
+
+    for query in queries:
+        query = query.strip()
+        url = "https://api.adzuna.com/v1/api/jobs/ca/search/1"
+        params = {
+            "app_id": ADZUNA_APP_ID,
+            "app_key": ADZUNA_APP_KEY,
+            "what": query,
+            "results_per_page": 4  # 4 per title = ~12 total
+        }
+
+        try:
+            res = requests.get(url, params=params)
+            print(f"🌐 Adzuna [{query}] status:", res.status_code)
+            if res.status_code != 200:
+                continue
+
+            data = res.json()
+            for item in data.get("results", []):
+                title = item.get("title")
+                company = item.get("company", {}).get("display_name")
+                key = f"{title}-{company}"
+                if key not in seen:
+                    seen.add(key)
+                    all_jobs.append({
+                        "title": title,
+                        "company": company,
+                        "description": item.get("description", ""),
+                        "url": item.get("redirect_url", "")
+                    })
+
+        except Exception as e:
+            print(f"❌ Adzuna fetch error for '{query}':", e)
+    
+    
+
+    print(f"📊 Total jobs fetched: {len(all_jobs)}")
+    return all_jobs
+
+    
+def score_jobs(resume_text: str, jobs: list) -> list:
+    resume_words = set(resume_text.lower().split())
+    
+    results = []
+    for job in jobs:
+        job_words = set((job["title"] + " " + job["description"]).lower().split())
+        score = len(resume_words.intersection(job_words))
+        results.append({
+            "title": job["title"],
+            "company": job["company"],
+            "score": score,
+            "url": job.get("url", "")
+        })
+    
+    return sorted(results, key=lambda x: x["score"], reverse=True)
