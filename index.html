@@ -44,7 +44,7 @@ async function uploadResume() {
   resultsDiv.innerHTML = "<p style='color:#aaa;'>Matching jobs...</p>";
 
   try {
-    const res = await fetch("http://127.0.0.1:8000/match", {
+    const res = await fetch("https://resumatch1-1.onrender.com/match", {
       method: "POST",
       body: formData
     });
